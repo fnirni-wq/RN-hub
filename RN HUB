@@ -1,0 +1,246 @@
+--============================================================
+--  STEAL AN EGG | Custom Hub v1.0 (à personnaliser)
+--  Menu : Rayfield | Auteur : Toi
+--============================================================
+
+-- 1) Charger l'UI
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Window = Rayfield:CreateWindow({
+    Name = "Steal An Egg | Custom Hub",
+    LoadingTitle = "Chargement...",
+    LoadingSubtitle = "Custom",
+    ConfigurationSaving = {Enabled = true, FolderName = "SAEHub", FileName = "Config"},
+    KeySystem = false
+})
+
+-- 2) Services
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local LP = Players.LocalPlayer
+
+-- 3) État global
+local State = {
+    AutoFarm = false,
+    AutoSteal = false,
+    AutoHatch = false,
+    FarmDelay = 0.3,
+    StealRange = 100
+}
+
+-- 4) Anti-AFK
+LP.Idled:Connect(function()
+    VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+    task.wait(1)
+    VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+end)
+
+--============================================================
+-- 5) HELPERS
+--============================================================
+local function getHRP()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function tpTo(pos)
+    local hrp = getHRP()
+    if hrp then hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end
+end
+
+local function firePrompt(prompt)
+    if prompt and prompt:IsA("ProximityPrompt") then
+        fireproximityprompt(prompt)
+    end
+end
+
+--============================================================
+-- 6) AUTO FARM (tapis roulant / money farm)
+--============================================================
+local function findTreadmill()
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and (obj.Name:lower():find("tread") or obj.Name:lower():find("farm")) then
+            return obj
+        end
+    end
+end
+
+local function autoFarmLoop()
+    while State.AutoFarm do
+        pcall(function()
+            local t = findTreadmill()
+            if t then
+                tpTo(t.Position)
+                task.wait(0.1)
+                for _, p in pairs(t:GetDescendants()) do
+                    if p:IsA("ProximityPrompt") then fireproximityprompt(p) end
+                end
+            end
+        end)
+        task.wait(State.FarmDelay)
+    end
+end
+
+--============================================================
+-- 7) AUTO STEAL
+--============================================================
+local function findEggs()
+    local eggs = {}
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if (obj:IsA("Model") or obj:IsA("BasePart"))
+           and obj.Name:lower():find("egg")
+           and not obj.Name:lower():find("player") then
+            table.insert(eggs, obj)
+        end
+    end
+    return eggs
+end
+
+-- Récupère le pivot d'une base appartenant au joueur
+local function getMyBase()
+    for _, obj in pairs(Workspace:GetChildren()) do
+        if obj.Name:lower():find(LP.Name:lower()) then return obj end
+    end
+end
+
+local function isOnMyBase(egg)
+    local base = getMyBase()
+    if not base then return false end
+    local part = egg:IsA("Model") and egg.PrimaryPart or egg
+    if not part then return false end
+    local ok, pivot = pcall(function() return base:GetPivot().Position end)
+    return ok and (part.Position - pivot).Magnitude < 40
+end
+
+local function stealEgg(egg)
+    local part = egg:IsA("Model") and egg.PrimaryPart or egg
+    if not part then return end
+    tpTo(part.Position)
+    task.wait(0.15)
+    -- Essaie les ProximityPrompt
+    for _, d in pairs(egg:GetDescendants()) do
+        if d:IsA("ProximityPrompt") then
+            fireproximityprompt(d)
+            task.wait(0.1)
+        end
+    end
+    -- ⚠️ Si le jeu utilise un RemoteEvent à la place :
+    -- ReplicatedStorage.Remotes.StealEgg:FireServer(egg)
+end
+
+local function autoStealLoop()
+    while State.AutoSteal do
+        pcall(function()
+            local hrp = getHRP()
+            if not hrp then return end
+            for _, egg in pairs(findEggs()) do
+                if not State.AutoSteal then break end
+                if not isOnMyBase(egg) then
+                    local part = egg:IsA("Model") and egg.PrimaryPart or egg
+                    if part and (part.Position - hrp.Position).Magnitude <= State.StealRange then
+                        stealEgg(egg)
+                    end
+                end
+            end
+        end)
+        task.wait(0.3)
+    end
+end
+
+--============================================================
+-- 8) AUTO HATCH / SELL
+--============================================================
+local function autoPromptLoop(keyword, stateKey)
+    while State[stateKey] do
+        pcall(function()
+            for _, obj in pairs(Workspace:GetDescendants()) do
+                if obj:IsA("ProximityPrompt")
+                   and obj.ActionText:lower():find(keyword) then
+                    tpTo(obj.Parent.Position)
+                    task.wait(0.2)
+                    fireproximityprompt(obj)
+                end
+            end
+        end)
+        task.wait(1)
+    end
+end
+
+--============================================================
+-- 9) UI
+--============================================================
+local MainTab = Window:CreateTab("Principal", 4483362458)
+MainTab:CreateSection("Status")
+MainTab:CreateLabel("✅ Hub chargé")
+
+-- Auto Farm tab
+local FarmTab = Window:CreateTab("Auto Farm", 4483362458)
+FarmTab:CreateToggle({
+    Name = "Auto Farm (Treadmill)", Flag = "Farm",
+    CurrentValue = false,
+    Callback = function(v)
+        State.AutoFarm = v
+        if v then task.spawn(autoFarmLoop) end
+    end
+})
+FarmTab:CreateSlider({
+    Name = "Delay Farm", Range = {0.1, 2}, Increment = 0.1, Suffix = "s",
+    CurrentValue = 0.3,
+    Callback = function(v) State.FarmDelay = v end
+})
+
+-- Auto Steal tab
+local StealTab = Window:CreateTab("Auto Steal", 4483362458)
+StealTab:CreateToggle({
+    Name = "Auto Steal", Flag = "Steal",
+    CurrentValue = false,
+    Callback = function(v)
+        State.AutoSteal = v
+        if v then task.spawn(autoStealLoop) end
+    end
+})
+StealTab:CreateSlider({
+    Name = "Rayon de détection", Range = {10, 500}, Increment = 10, Suffix = " studs",
+    CurrentValue = 100,
+    Callback = function(v) State.StealRange = v end
+})
+StealTab:CreateButton({
+    Name = "Voler l'œuf le plus proche",
+    Callback = function()
+        local hrp = getHRP(); if not hrp then return end
+        local eggs = findEggs()
+        table.sort(eggs, function(a, b)
+            local pa = a:IsA("Model") and a.PrimaryPart or a
+            local pb = b:IsA("Model") and b.PrimaryPart or b
+            return (pa.Position - hrp.Position).Magnitude < (pb.Position - hrp.Position).Magnitude
+        end)
+        for _, e in pairs(eggs) do
+            if not isOnMyBase(e) then stealEgg(e); break end
+        end
+    end
+})
+
+-- Divers tab
+local MiscTab = Window:CreateTab("Divers", 4483362458)
+MiscTab:CreateToggle({
+    Name = "Auto Hatch", CurrentValue = false,
+    Callback = function(v)
+        State.AutoHatch = v
+        if v then task.spawn(function() autoPromptLoop("hatch", "AutoHatch") end) end
+    end
+})
+MiscTab:CreateButton({
+    Name = "Rejoindre Discord",
+    Callback = function() setclipboard("https://discord.gg/") end
+})
+
+Rayfield:LoadConfiguration()for _, o in pairs(workspace:GetDescendants()) do
+    if o.Name:lower():find("egg") then print(o:GetFullName(), o.ClassName) end
+endfor _, r in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+    if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then print(r:GetFullName()) end
+end-- Remplace le ProximityPrompt par :
+ReplicatedStorage.Remotes.StealEgg:FireServer(eggModel)for _, o in pairs(workspace:GetChildren()) do print(o.Name) endfor _, o in pairs(workspace:GetDescendants()) do
+    if o:IsA("BasePart") and o.Name:lower():find("tread") then print(o:GetFullName()) end
+end
